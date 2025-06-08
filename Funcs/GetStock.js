@@ -1,109 +1,117 @@
 const https = require("https");
 
-const options = {
-    method: "GET",
-    hostname: "growagarden.gg",
-    port: null,
-    path: "/api/ws/stocks.getAll?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D",
-    headers: {
-        accept: "*/*",
-        "accept-language": "en-US,en;q=0.9",
-        "content-type": "application/json",
-        priority: "u=1, i",
-        referer: "https://growagarden.gg/stocks",
-        "trpc-accept": "application/json",
-        "x-trpc-source": "gag"
-    }
+const stockOptions = {
+  hostname: "growagardenvalues.com",
+  port: 443,
+  method: "GET",
+  headers: {
+    accept: "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    "content-type": "application/json",
+    "x-requested-with": "XMLHttpRequest",
+  },
 };
 
-function fetchStocks() {
-    return new Promise((resolve, reject) => {
-        const req = https.request(options, (res) => {
-            const chunks = [];
-            res.on("data", (chunk) => {
-                chunks.push(chunk);
-            });
+function fetchStockData(type) {
+  return new Promise((resolve, reject) => {
+    const options = { ...stockOptions, path: `/stock/refresh_stock.php?type=${type}` };
 
-            res.on("end", () => {
-                try {
-                    const body = Buffer.concat(chunks);
-                    const parsedData = JSON.parse(body.toString());
-                    resolve(parsedData);
-                } catch (err) {
-                    reject(err);
-                }
-            });
-        });
+    const req = https.request(options, (res) => {
+      const chunks = [];
 
-        req.on("error", (e) => {
-            reject(e);
-        });
+      res.on("data", (chunk) => chunks.push(chunk));
 
-        req.end();
-    });
-}
-
-function formatStocks(data) {
-    const stocks = data[0]?.result?.data?.json || {};
-
-    return {
-        gearStock: formatStockItems(stocks.gearStock || []),
-        eggStock: formatStockItems(stocks.eggStock || []),
-        seedsStock: formatStockItems(stocks.seedsStock || []),
-        cosmeticsStock: formatStockItems(stocks.cosmeticsStock || []),
-        honeyStock: formatStockItems(stocks.honeyStock || []),
-        nightStock: formatStockItems(stocks.nightStock || []),
-
-        lastSeen: {
-            Seeds: formatLastSeenItems(stocks.lastSeen?.Seeds || []),
-            Gears: formatLastSeenItems(stocks.lastSeen?.Gears || []),
-            Weather: formatLastSeenItems(stocks.lastSeen?.Weather || []),
-            Eggs: formatLastSeenItems(stocks.lastSeen?.Eggs || [])
-        }
-    };
-}
-
-function formatStockItems(items) {
-    return items.map(item => ({
-        name: item.name,
-        value: item.value,
-        image: item.image,
-        emoji: item.emoji
-    }));
-}
-
-function formatLastSeenItems(items) {
-    return items.map(item => ({
-        name: item.name,
-        image: item.image,
-        emoji: item.emoji,
-        seen: new Date(item.seen).toLocaleString()
-    }));
-}
-
-async function FetchStockData() {
-    try {
-        const data = await fetchStocks();
-        return formatStocks(data);
-    } catch (err) {
-        console.error("Error fetching stock data:", err);
-        return null;
-    }
-}
-
-function register(app) {
-    app.get('/api/stock/GetStock', async (req, res) => {
+      res.on("end", () => {
+        const body = Buffer.concat(chunks).toString();
         try {
-            const stockData = await FetchStockData();
-            if (!stockData) {
-                res.status(500).json({ error: "Failed to fetch stock data" });
-                return;
-            }
-            res.json(stockData);
+          const parsedData = JSON.parse(body);
+          resolve(parsedData);
         } catch (err) {
-            res.status(500).json({ error: "Error fetching stock data" });
+          reject({
+            status: 500,
+            message: `Invalid JSON response for ${type}: ${err.message}`,
+          });
         }
+      });
     });
+
+    req.on("error", (e) => {
+      reject({
+        status: 502,
+        message: `Problem with ${type} request: ${e.message}`,
+      });
+    });
+
+    req.end();
+  });
 }
 
-module.exports = { register };
+async function fetchAllStocks() {
+  return Promise.all([
+    fetchStockData("gears"),
+    fetchStockData("seeds"),
+    fetchStockData("eggs"),
+    fetchStockData("event-shop-stock"),
+    fetchStockData("cosmetics"),
+  ]).then(([gears, seeds, eggs, eventShop, cosmetics]) => ({
+    gears,
+    seeds,
+    eggs,
+    eventShop,
+    cosmetics,
+  }));
+}
+
+function formatStockItems(records) {
+  if (!Array.isArray(records)) return "No data";
+  return records.map((item) => ` ${item.Data?.Name || "Unknown"}: ${item.Amount || 0}`).join("\n");
+}
+
+function formatAllStocks(data) {
+  const phTime = new Date().toLocaleTimeString("en-PH", {
+    timeZone: "Asia/Manila",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  return (
+    `📦 GrowAGarden Stocks (${phTime})\n\n` +
+    `🔧 Gears:\n${formatStockItems(data.gears?.data?.records)}\n\n` +
+    `🌱 Seeds:\n${formatStockItems(data.seeds?.data?.records)}\n\n` +
+    `🥚 Eggs:\n${formatStockItems(data.eggs?.data?.records)}\n\n` +
+    `🐝 Event Shop:\n${formatStockItems(data.eventShop?.data?.records)}\n\n` +
+    `🎨 Cosmetics:\n${formatStockItems(data.cosmetics?.data?.records)}`
+  );
+}
+
+module.exports.config = {
+  name: "stock",
+  version: "2.0.0",
+  permission: 2,
+  credits: "You",
+  description: "Show GrowAGarden stock list (gears, seeds, etc)",
+  prefix: true,
+  premium: false,
+  category: "general",
+  usages: "-stock",
+  cooldowns: 5,
+};
+
+module.exports.run = async function ({ api, event }) {
+  const { threadID, messageID } = event;
+
+  try {
+    const stockData = await fetchAllStocks();
+    const message = formatAllStocks(stockData);
+
+    api.sendMessage(message, threadID, (err, info) => {
+      if (!err && info?.messageID) {
+        // Auto delete the message after 40 seconds
+        setTimeout(() => api.unsendMessage(info.messageID).catch(() => {}), 40000);
+      }
+    }, messageID);
+  } catch (err) {
+    api.sendMessage(`❌ Failed to fetch stock data.\nError: ${err.message || err}`, threadID, messageID);
+  }
+};
