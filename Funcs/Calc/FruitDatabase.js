@@ -105,7 +105,13 @@ const ItemData = [
     "Pollinated": { "ValueMulti": 3 },
     "Windstruck": { "ValueMulti": 5 },
     "Dawnbound": { "ValueMulti": 5 },
-    "Heavenly": { "ValueMulti": 5 }
+    "Heavenly": { "ValueMulti": 5 },
+    "Molten": { "ValueMulti": 25 },
+    "Cooked": { "ValueMulti": 10 },
+    "Burnt": { "ValueMulti": 4 }
+      
+      
+      
   };
   
   module.exports = {
